@@ -1,0 +1,97 @@
+---
+  - name: setup the kodecloud sample ecommerce application
+    hosts: all
+    become: yes
+    tasks:
+
+      - name: install firewalld, mariadb, httpd, php, php-mysql, git
+        yum: "{{ item }}"
+        loop:
+          -  name: firewalld
+             state: present
+          -  name: mariadb-server
+             state: present
+          -  name: httpd
+             state: present
+          -  name: php
+             state: present
+          -  name: php-mysql
+             state: present
+          -  name: git
+             state: present
+          -  name: MySQL-python
+             state: present
+
+      - name: start and enable firewalld
+        service:
+          name: firewalld
+          state: started
+          enabled: yes
+
+      - name: set applicable firewall rules
+        firewalld:
+          state: enabled
+          zone: public
+          service: "{{ item }}"
+          permanent: yes
+          immediate: yes
+        loop:
+          - http
+          - mysql
+
+      - name: start and enable mariadb server
+        service:
+          name: mariadb
+          state: started
+          enabled: yes
+
+      - name: create database "ecomdb"
+        mysql_db:
+          name: ecomdb
+          state: present
+
+      - name: add database user ecomuser and configure for access from local hosts
+        mysql_user:
+          name: ecomuser
+          password: ecompassword
+          priv: '*.*:ALL'
+          state: present
+
+      - name: copy sql script to server
+        copy:
+          src: "/home/libertyhound/udemy/ansible_for_beginners/project/ecommerce_app/files/db-load-script.sql"
+          dest: "/tmp/db-load-script.sql"
+
+      - name: check if products tables exists
+        stat:
+          path: /var/lib/mysql/ecomdb/products.frm
+        register: result
+
+      - name: run the sql db load script if the products table does not already exist
+        mysql_db:
+          state: import
+          name: all
+          target: "/tmp/db-load-script.sql"
+        when: not result.stat.exists
+
+      - name: Change DirectoryIndex index.html to DirectoryIndex index.php to make hte php page the default package
+        become: yes
+        lineinfile:
+          path: /etc/httpd/conf/httpd.conf
+          regexp: "^DirectoryIndex index."
+          line: DirectoryIndex index.php
+
+      - name: start and enable httpd
+        service:
+          name: httpd
+          state: started
+          enabled: yes
+
+      - name: update index.php
+        become: yes
+        copy:
+          src:  "/home/libertyhound/udemy/ansible_for_beginners/project/ecommerce_app/files/index.php"
+          dest: "/var/www/html/index.php"
+
+      - name: check status of website
+        command: curl http://192.168.20.2
